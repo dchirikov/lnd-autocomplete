@@ -101,17 +101,46 @@ function _lncli_autocomplete() {
         ' | sort 2>/dev/null
     }
 
-    function get_peers() {
-        eval "${EXEC} listpeers 2>/dev/null"  \
-            | sed -n '/pub_key/{s/.*": "\(.*\)",/\1/;p}' \
-            | sort
-    }
-
     function get_channels() {
         eval "${EXEC} listchannels 2>/dev/null" \
             | sed -n '/chan_id/{s/.*": "\(.*\)",/\1/;p}' \
             | sort
 
+    }
+
+    function get_peer_ips() {
+        local CMD=$1
+        local WORD=$2
+        local PRED=$3
+        CHANNELS=$(
+            eval "${EXEC} listpeers 2>/dev/null" \
+                | awk '
+                    /pub_key/ {
+                        k = $2;
+                    }
+                    /address/ {
+                        a = $2;
+                        o = a" "k;
+                        gsub("[\",]", "", o);
+                        print o;
+                    }' \
+                | while read a k; do
+                    alias=$(eval "${EXEC} getnodeinfo --pub_key ${k} 2>/dev/null" \
+                        | sed -n '/alias/{s/.*": "\(.*\)",/\1/;p}')
+                    echo "${k} ${a}/${alias/ /_}"
+                  done
+        )
+        if [[ "x${WORD}" == "x" ]]; then
+            COMPREPLY=($(echo ${CHANNELS}))
+            return
+        fi
+        MATCHES=$(echo "${CHANNELS}" | grep -E "${WORD}")
+        if [[ "$(echo "${MATCHES}" | wc -l)" -eq 1 ]]; then
+            COMPREPLY=($(echo "${MATCHES}" | awk '{print $1}'))
+            return
+        fi
+        COMPREPLY=($(echo ${MATCHES}))
+        return
     }
 
     local CUR=${COMP_WORDS[COMP_CWORD]}
@@ -155,7 +184,7 @@ function _lncli_autocomplete() {
 
     # list peers
     if [[ "x${PREV}" == "x--node_key" || "x${PREV}" == "x--pub_key" ]]; then
-        COMPREPLY=($(compgen -W "$(get_peers)" -- "${CUR}"))
+        COMPREPLY=($(compgen -F get_peer_ips -- "${CUR}" 2>/dev/null))
         return
     fi
 
