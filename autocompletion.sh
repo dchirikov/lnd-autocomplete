@@ -98,12 +98,20 @@ function _lncli_autocomplete() {
                 }
             }
 
-        ' 2>/dev/null
+        ' | sort 2>/dev/null
     }
 
     function get_peers() {
         eval "${EXEC} listpeers 2>/dev/null"  \
-            | sed -n '/pub_key/{s/.*": "\(.*\)",/\1/;p}'
+            | sed -n '/pub_key/{s/.*": "\(.*\)",/\1/;p}' \
+            | sort
+    }
+
+    function get_channels() {
+        eval "${EXEC} listchannels 2>/dev/null" \
+            | sed -n '/chan_id/{s/.*": "\(.*\)",/\1/;p}' \
+            | sort
+
     }
 
     local CUR=${COMP_WORDS[COMP_CWORD]}
@@ -138,19 +146,28 @@ function _lncli_autocomplete() {
     # get help for command
     CMD_OPT=$(get_options ${CMD} ${PREV})
     if [[ "x${CMD_OPT[*]}" != "x" ]]; then
-        COMPREPLY=($(compgen -W "${CMD_OPT}" -- "${CUR}"))
+        COMPREPLY=($(compgen -W "${CMD_OPT} -h" -- "${CUR}"))
         return
     fi
 
     # no CMD_OPT suggested, so do some handy stuff
     # which can't be handle from command help
+
+    # list peers
     if [[ "x${PREV}" == "x--node_key" || "x${PREV}" == "x--pub_key" ]]; then
-        NODE_KEYS=$(get_peers)
-        COMPREPLY=($(compgen -W "${NODE_KEYS}" -- "${CUR}"))
+        COMPREPLY=($(compgen -W "$(get_peers)" -- "${CUR}"))
         return
     fi
+
+    # suggest address type
     if [[ "x${CMD}" == "xnewaddress" ]]; then
         COMPREPLY=($(compgen -W "p2wkh np2wkh" -- "${CUR}"))
+        return
+    fi
+
+    # suggest channels
+    if [[ "x${CMD}" == "xgetchaninfo" && "x${PREV} == "x--chan_id"" ]]; then
+        COMPREPLY=($(compgen -W "$(get_channels)" -- "${CUR}"))
         return
     fi
 
