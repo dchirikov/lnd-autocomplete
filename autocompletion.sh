@@ -101,18 +101,75 @@ function _lncli_autocomplete() {
         ' | sort 2>/dev/null
     }
 
-    function get_channels() {
-        eval "${EXEC} listchannels 2>/dev/null" \
-            | sed -n '/chan_id/{s/.*": "\(.*\)",/\1/;p}' \
-            | sort
-
+    function get_channels_info() {
+        local CMD=$1
+        local WORD=$2
+        local PRED=$3
+        ID_IP=$(
+            eval "${EXEC} listpeers 2>/dev/null" \
+                | awk '
+                    /pub_key/ {
+                        k = $2;
+                    }
+                    /address/ {
+                        a = $2;
+                        o = k"@"a;
+                        gsub("[\",]", "", o);
+                        print o;
+                    }' | sort
+        )
+        CHANNELS_UNRESOLVED=$(
+            eval "${EXEC} listchannels 2>/dev/null" \
+                | awk -v idip="${ID_IP}" '
+                    BEGIN{
+                        n = split(idip,ids,"\n");
+                        for (i=1; i<n; i++) {
+                            t = split(ids[i], m, "@");
+                            id_map[m[1]] = m[2];
+                        }
+                    }
+                    /remote_pubkey/ {
+                        gsub("[\",]", "", $2);
+                        k = $2
+                    }
+                    /chan_id/ {
+                        i = $2;
+                        o = i" "k" "id_map[k];
+                        gsub("[\",]", "", o);
+                        print o
+                    }' | sort
+        )
+        # if we have les than 30 channels it would be not that expensive
+        # to resolve them for readability
+        if [[ $(echo "${CHANNELS_UNRESOLVED}" | wc -l) -le 30 ]]; then
+            local CHANNELS=$(echo "${CHANNELS_UNRESOLVED}" \
+                | while read i k a; do
+                    alias=$(eval "${EXEC} getnodeinfo --pub_key ${k} 2>/dev/null" \
+                        | sed -n '/alias/{s/.*": "\(.*\)",/\1/;p}')
+                    echo "${i} ${a}/${alias/ /_}"
+                  done
+            )
+        else
+            local CHANNELS=${CHANNELS_UNRESOLVED}
+        fi
+        if [[ "x${WORD}" == "x" ]]; then
+            COMPREPLY=($(echo ${CHANNELS}))
+            return
+        fi
+        local MATCHES=$(echo "${CHANNELS}" | grep -E "${WORD}")
+        if [[ "$(echo "${MATCHES}" | wc -l)" -eq 1 ]]; then
+            COMPREPLY=($(echo "${MATCHES}" | awk '{print $1}'))
+            return
+        fi
+        COMPREPLY=($(echo ${MATCHES}))
+        return
     }
 
     function get_peer_ips() {
         local CMD=$1
         local WORD=$2
         local PRED=$3
-        CHANNELS=$(
+        local PEERS_UNRESOLVED=$(
             eval "${EXEC} listpeers 2>/dev/null" \
                 | awk '
                     /pub_key/ {
@@ -123,18 +180,26 @@ function _lncli_autocomplete() {
                         o = a" "k;
                         gsub("[\",]", "", o);
                         print o;
-                    }' \
+                    }' | sort
+        )
+        # if we have les than 30 peers it would be not that expensive
+        # to resolve them for readability
+        if [[ $(echo "${PEERS_UNRESOLVED}" | wc -l) -le 30 ]]; then
+            local PEERS=$(echo "${PEERS_UNRESOLVED}" \
                 | while read a k; do
                     alias=$(eval "${EXEC} getnodeinfo --pub_key ${k} 2>/dev/null" \
                         | sed -n '/alias/{s/.*": "\(.*\)",/\1/;p}')
                     echo "${k} ${a}/${alias/ /_}"
                   done
-        )
+            )
+        else
+            local PEERS=${PEERS_UNRESOLVED}
+        fi
         if [[ "x${WORD}" == "x" ]]; then
-            COMPREPLY=($(echo ${CHANNELS}))
+            COMPREPLY=($(echo ${PEERS}))
             return
         fi
-        MATCHES=$(echo "${CHANNELS}" | grep -E "${WORD}")
+        local MATCHES=$(echo "${PEERS}" | grep -E "${WORD}")
         if [[ "$(echo "${MATCHES}" | wc -l)" -eq 1 ]]; then
             COMPREPLY=($(echo "${MATCHES}" | awk '{print $1}'))
             return
@@ -196,7 +261,7 @@ function _lncli_autocomplete() {
 
     # suggest channels
     if [[ "x${CMD}" == "xgetchaninfo" && "x${PREV} == "x--chan_id"" ]]; then
-        COMPREPLY=($(compgen -W "$(get_channels)" -- "${CUR}"))
+        COMPREPLY=($(compgen -F get_channels_info -- "${CUR}" 2>/dev/null))
         return
     fi
 
