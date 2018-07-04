@@ -2,9 +2,9 @@
 function _lncli_autocomplete() {
 
     compopt +o bashdefault +o default +o dirnames +o filenames +o nospace +o plusdirs
-    EXEC=${COMP_WORDS[0]}
+    local EXEC=${COMP_WORDS[0]}
     function get_main_help() {
-        SUGGEST_DASHES=$1
+        local SUGGEST_DASHES=$1
         eval "${EXEC} help 2>/dev/null" | awk -v suggest_dashes=${SUGGEST_DASHES} '
             /^COMMANDS:/{                    # check if we in COMMANDS: section
                 in_comm = 1;
@@ -66,8 +66,8 @@ function _lncli_autocomplete() {
     }
 
     function get_options() {
-        CMD=$1
-        ARG=$2
+        local CMD=$1
+        local ARG=$2
         eval "${EXEC} ${CMD} -h 2>/dev/null" | awk -v cmd=${CMD} -v arg=${ARG} '
             /^OPTIONS:/{                     # check if we in OPTIONS: section
                 in_opt = 1;
@@ -105,7 +105,7 @@ function _lncli_autocomplete() {
         local CMD=$1
         local WORD=$2
         local PRED=$3
-        ID_IP=$(
+        local ID_IP=$(
             eval "${EXEC} listpeers 2>/dev/null" \
                 | awk '
                     /pub_key/ {
@@ -118,7 +118,7 @@ function _lncli_autocomplete() {
                         print o;
                     }' | sort
         )
-        CHANNELS_UNRESOLVED=$(
+        local CHANNELS_UNRESOLVED=$(
             eval "${EXEC} listchannels 2>/dev/null" \
                 | awk -v idip="${ID_IP}" '
                     BEGIN{
@@ -134,7 +134,8 @@ function _lncli_autocomplete() {
                     }
                     /chan_id/ {
                         i = $2;
-                        o = i" "k" "id_map[k];
+                        count[k] += 1
+                        o = i" "k" "id_map[k]" "count[k];
                         gsub("[\",]", "", o);
                         print o
                     }' | sort
@@ -143,10 +144,14 @@ function _lncli_autocomplete() {
         # to resolve them for readability
         if [[ $(echo "${CHANNELS_UNRESOLVED}" | wc -l) -le 30 ]]; then
             local CHANNELS=$(echo "${CHANNELS_UNRESOLVED}" \
-                | while read i k a; do
-                    alias=$(eval "${EXEC} getnodeinfo --pub_key ${k} 2>/dev/null" \
+                | while read i k a n; do
+                    local alias=$(eval "${EXEC} getnodeinfo --pub_key ${k} 2>/dev/null" \
                         | sed -n '/alias/{s/.*": "\(.*\)",/\1/;p}')
-                    echo "${i} ${a}/${alias/ /_}"
+                    if [[ ${n} -eq 1 ]]; then
+                        echo -e "${i} ${a/:/\\:}\\/${alias/[:\/ ]/_}"
+                    else
+                        echo -e "${i} ${a/:/\\:}\\/${alias/[:\/ ]/_}\\(${n}\\)"
+                    fi
                   done
             )
         else
@@ -156,9 +161,10 @@ function _lncli_autocomplete() {
             COMPREPLY=($(echo ${CHANNELS}))
             return
         fi
-        local MATCHES=$(echo "${CHANNELS}" | grep -E "${WORD}")
-        if [[ "$(echo "${MATCHES}" | wc -l)" -eq 1 ]]; then
-            COMPREPLY=($(echo "${MATCHES}" | awk '{print $1}'))
+        local MATCHES=$(echo -ne ${CHANNELS} | tr ' ' '\n' | grep -F "${WORD}")
+        local N_OCCURENCES=$(echo "${MATCHES}" | wc -l)
+        if [[ ${N_OCCURENCES} -eq 1 ]]; then
+            COMPREPLY=($(echo -ne "${CHANNELS}" | grep -F "${WORD}" | awk  '{print $1}'))
             return
         fi
         COMPREPLY=($(echo ${MATCHES}))
@@ -182,14 +188,15 @@ function _lncli_autocomplete() {
                         print o;
                     }' | sort
         )
-        # if we have les than 30 peers it would be not that expensive
+        # if we have less than 30 peers it would be not that expensive
         # to resolve them for readability
         if [[ $(echo "${PEERS_UNRESOLVED}" | wc -l) -le 30 ]]; then
             local PEERS=$(echo "${PEERS_UNRESOLVED}" \
                 | while read a k; do
-                    alias=$(eval "${EXEC} getnodeinfo --pub_key ${k} 2>/dev/null" \
+                    local alias=$(eval "${EXEC} getnodeinfo --pub_key ${k} 2>/dev/null" \
                         | sed -n '/alias/{s/.*": "\(.*\)",/\1/;p}')
-                    echo "${k} ${a}/${alias/ /_}"
+                    echo "${k} ${a/:/\\:}\\/${alias/[:\/ ]/_}" \
+                        | tr -cd '\11\12\40-\176'
                   done
             )
         else
@@ -240,7 +247,7 @@ function _lncli_autocomplete() {
     # get help for command
     CMD_OPT=$(get_options ${CMD} ${PREV})
     if [[ "x${CMD_OPT[*]}" != "x" ]]; then
-        COMPREPLY=($(compgen -W "${CMD_OPT} -h" -- "${CUR}"))
+        COMPREPLY=($(compgen -W "${CMD_OPT}" -- "${CUR}"))
         return
     fi
 
